@@ -1,14 +1,4 @@
-
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >-
-  ProductX WAFR cross-account read-only role. Single template covers both
-  modes ? set EnableOrganizations=yes to additionally provision a StackSet that
-  rolls a matching member role out across every account in the targeted OUs.
-  Role chain (org mode): Platform ? ProductXWAFRRole ? ProductXWAFRMemberRole.
-  Org-mode prerequisite (one-time, in the management account): activate trusted
-  access between CloudFormation StackSets and AWS Organizations from the
-  CloudFormation ? StackSets console.
-
 
 Parameters:
   TrustedAccountId:
@@ -18,108 +8,84 @@ Parameters:
   ExternalId:
     Type: String
     NoEcho: true
-    Description: Per-account External ID issued by ProductX (confused-deputy protection). Do not change.
+    Description: Per-account External ID issued by ProductX.
   EnableOrganizations:
     Type: String
     Default: 'no'
-    AllowedValues: ['yes', 'no']
-    Description: >-
-      Set to 'yes' if this account is an AWS Organizations management account
-      and you want ProductX to scan member accounts too. Requires CloudFormation
-      StackSets trusted access to be activated in AWS Organizations first.
-      Leave 'no' for single-account onboarding.
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: Set to 'yes' if this account is an AWS Organizations management
+      account and you want ProductX to scan member accounts too.
   TargetOUs:
     Type: String
     Default: ''
-    AllowedPattern: '^$|^(ou|r)-[a-z0-9-]+(,(ou|r)-[a-z0-9-]+)*$'
-    ConstraintDescription: >-
-      Must be empty (single-account mode) or a comma-separated list of OU ids
-      starting with ou- or r- (e.g. r-abc1 or ou-abc1-12abcdef,ou-abc1-34ghijkl).
-    Description: >-
-      REQUIRED when EnableOrganizations=yes. Organizational Unit IDs to roll
-      the member role into ? pass the root OU id (r-xxxx) to cover every
-      account in the organization, or comma-separate specific OU IDs
-      (ou-xxxx-xxxxxxxx). Ignored when EnableOrganizations=no.
+    AllowedPattern: ^$|^(ou|r)-[a-z0-9-]+(,(ou|r)-[a-z0-9-]+)*$
+    ConstraintDescription: Must be empty (single-account mode) or a comma-separated
+      list of OU ids starting with ou- or r- (e.g. r-abc1 or
+      ou-abc1-12abcdef,ou-abc1-34ghijkl).
+    Description: Required to cover all accounts in the organization
 
-
-  Environment:
-    Type: String
-    Default: 'production'
-    Description: Value for the Environment tag on every role this stack creates.
-  Owner:
-    Type: String
-    Default: 'engineering'
-    Description: Value for the Owner tag on every role this stack creates.
   ExistingCURBucket:
     Type: String
     Default: ''
-    AllowedPattern: '^$|^[a-z0-9.\-]{3,63}$'
-    ConstraintDescription: >-
-      Single S3 bucket name (DNS-compliant, 3-63 chars).
-  CreateFinOpsRole:
-    Type: String
-    Default: 'yes'
-    AllowedValues: ['yes', 'no']
-    Description: >-
-      Create the ReservedAI-Write FinOps role. Choose 'no' if this account
-      already has a role named ReservedAI-Write (IAM role names are unique per
-      account and the stack cannot adopt an existing one).
+    AllowedPattern: ^$|^[a-z0-9.\-]{3,63}$
+    ConstraintDescription: Single S3 bucket name (DNS-compliant, 3-63 chars).
 
 Rules:
   TargetOUsRequiredForOrg:
-    RuleCondition: !Equals [!Ref EnableOrganizations, 'yes']
+    RuleCondition: !Equals
+      - !Ref EnableOrganizations
+      - 'yes'
     Assertions:
-      - Assert: !Not [!Equals [!Ref TargetOUs, '']]
-        AssertDescription: >-
-          TargetOUs is required when EnableOrganizations=yes. Provide the root
-          OU id (r-xxxx) for all accounts, or specific OU ids (ou-xxxx-xxxxxxxx)
-          comma-separated.
+      - Assert: !Not
+          - !Equals
+            - !Ref TargetOUs
+            - ''
+        AssertDescription: TargetOUs is required when EnableOrganizations=yes. Provide
+          the root OU id (r-xxxx) for all accounts, or specific OU ids
+          (ou-xxxx-xxxxxxxx) comma-separated.
 
 Conditions:
-  IsOrg: !Equals [!Ref EnableOrganizations, 'yes']
-  HasExistingCURBucket: !Not [!Equals [!Ref ExistingCURBucket, '']]
-  WantsFinOpsRole: !Equals [!Ref CreateFinOpsRole, 'yes']
+  IsOrg: !Equals
+    - !Ref EnableOrganizations
+    - 'yes'
+  HasExistingCURBucket: !Not
+    - !Equals
+      - !Ref ExistingCURBucket
+      - ''
 
 Resources:
-  ProductXWAFRRole:
+  ProductXRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: ProductXWAFRRole
-      Tags:
-        - Key: Project
-          Value: productx
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: ManagedBy
-          Value: cloudformation
-        - Key: Owner
-          Value: !Ref Owner
+      RoleName: ProductXRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${TrustedAccountId}:root'
+              AWS: !Sub arn:aws:iam::${TrustedAccountId}:root
             Action: sts:AssumeRole
             Condition:
               StringEquals:
                 sts:ExternalId: !Ref ExternalId
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${TrustedAccountId}:user/billingviewer'
+              AWS: !Sub arn:aws:iam::${TrustedAccountId}:user/billingviewer
             Action: sts:AssumeRole
           - Effect: Allow
             Principal:
-              AWS: "282762468439"
+              AWS: '282762468439'
             Action: sts:AssumeRole
             Condition:
               StringEquals:
-                sts:ExternalId: "9ba55e7ffef3c1611a511bbbdadbcdbff662b8d9"
+                sts:ExternalId: 9ba55e7ffef3c1611a511bbbdadbcdbff662b8d9
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/SecurityAudit
         - arn:aws:iam::aws:policy/ReadOnlyAccess
-      Policies: 
-        - PolicyName: WAFRWorkloadManagement
+      Policies:
+        - PolicyName: ProductXWellarchitectedPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -128,46 +94,29 @@ Resources:
                 Action:
                   - wellarchitected:CreateWorkload
                   - wellarchitected:UpdateWorkload
-                  - wellarchitected:DeleteWorkload
                 Resource: '*'
-              - Sid: WorkloadLensManagement
-                Effect: Allow
-                Action:
-                  - wellarchitected:AssociateLenses
-                  - wellarchitected:DisassociateLenses
-                  - wellarchitected:UpgradeLensReview
-                  - wellarchitected:UpdateLensReview
-                Resource:
-                  - !Sub 'arn:aws:wellarchitected:*:${AWS::AccountId}:workload/*'
               - Sid: AnswerManagement
                 Effect: Allow
                 Action:
                   - wellarchitected:UpdateAnswer
                 Resource:
-                  - !Sub 'arn:aws:wellarchitected:*:${AWS::AccountId}:workload/*'
+                  - !Sub arn:aws:wellarchitected:*:${AWS::AccountId}:workload/*
               - Sid: MilestoneManagement
                 Effect: Allow
                 Action:
                   - wellarchitected:CreateMilestone
                 Resource:
-                  - !Sub 'arn:aws:wellarchitected:*:${AWS::AccountId}:workload/*'
-              - Sid: WorkloadTagging
-                Effect: Allow
-                Action:
-                  - wellarchitected:TagResource
-                  - wellarchitected:UntagResource
-                  - wellarchitected:ListTagsForResource
-                Resource:
-                  - !Sub 'arn:aws:wellarchitected:*:${AWS::AccountId}:workload/*'
-        - PolicyName: DataPlaneReadDeny
+                  - !Sub arn:aws:wellarchitected:*:${AWS::AccountId}:workload/*
+
+        - PolicyName: ProductXDenyCustomerDataReads
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: DenyCustomerDataPlaneReads
+              - Sid: ProductXDenyCustomerDataReads
                 Effect: Deny
                 Action:
                   - s3-object-lambda:GetObject
-                  - dynamodb:Query 
+                  - dynamodb:Query
                   - dynamodb:Scan
                   - dynamodb:PartiQLSelect
                   - dax:GetItem
@@ -176,103 +125,82 @@ Resources:
                   - dax:Scan
                   - es:ESHttpGet
                   - es:ESHttpHead
-                  - cassandra:Select 
+                  - cassandra:Select
                   - qldb:GetBlock
                   - qldb:GetRevision
                   - qldb:GetDigest
                 Resource: '*'
-
-  AllowAssumeMemberRoles:
-    Type: AWS::IAM::Policy
-    Condition: IsOrg
-    Properties:
-      PolicyName: ProductXWAFRAssumeMemberRoles
-      Roles:
-        - !Ref ProductXWAFRRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action: sts:AssumeRole
-            Resource: 'arn:aws:iam::*:role/ProductXWAFRMemberRole'
-            Condition:
-              StringEquals:
-                sts:ExternalId: !Ref ExternalId
-
-  ManageCURPolicy:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: ProductXManageCUR
-      Roles:
-        - !Ref ProductXWAFRRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - cur:DescribeReportDefinitions
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - cur:PutReportDefinition
-              - cur:ModifyReportDefinition
-              - cur:DeleteReportDefinition
-            Resource: 'arn:aws:cur:*:*:definition/productx-*'
-          - Effect: Allow
-            Action:
-              - s3:CreateBucket
-              - s3:HeadBucket
-              - s3:GetBucketLocation
-              - s3:GetBucketPolicy
-              - s3:PutBucketPolicy
-            Resource: 'arn:aws:s3:::productx-cur-*'
-          - Effect: Allow
-            Action:
-              - s3:ListAllMyBuckets
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:GetBucketLocation
-            Resource:
-              - !Sub 'arn:aws:s3:::productx-cur-${AWS::AccountId}'
-              - !Sub 'arn:aws:s3:::productx-cur-${AWS::AccountId}/*'
-
-  ExistingCURBucketPolicy:
-    Type: AWS::IAM::Policy
-    Condition: HasExistingCURBucket
-    Properties:
-      PolicyName: ProductXReadExistingCURBucket
-      Roles:
-        - !Ref ProductXWAFRRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:GetBucketLocation
-            Resource:
-              - !Sub 'arn:aws:s3:::${ExistingCURBucket}'
-              - !Sub 'arn:aws:s3:::${ExistingCURBucket}/*'
-
-
-  CloudelligentFinOpsRole:
+        - PolicyName: CurPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cur:DescribeReportDefinitions
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cur:PutReportDefinition
+                  - cur:ModifyReportDefinition
+                  - cur:DeleteReportDefinition
+                Resource: arn:aws:cur:*:*:definition/productx-*
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:HeadBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                Resource: arn:aws:s3:::productx-cur-*
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub arn:aws:s3:::productx-cur-${AWS::AccountId}
+                  - !Sub arn:aws:s3:::productx-cur-${AWS::AccountId}/*
+        - !If
+          - HasExistingCURBucket
+          - PolicyName: ProductXReadExistingCURBucket
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:ListBucket
+                    - s3:GetBucketLocation
+                  Resource:
+                    - !Sub arn:aws:s3:::${ExistingCURBucket}
+                    - !Sub arn:aws:s3:::${ExistingCURBucket}/*
+          - !Ref AWS::NoValue
+        - !If
+          - IsOrg
+          - PolicyName: ProductXAssumeMemberRoles
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: sts:AssumeRole
+                  Resource: arn:aws:iam::*:role/ProductXMemberRole
+                  Condition:
+                    StringEquals:
+                      sts:ExternalId: !Ref ExternalId
+                      aws:ResourceOrgID: ${aws:PrincipalOrgID}
+          - !Ref AWS::NoValue
+  
+  CloudelligentFinOpsRole: 
     Type: AWS::IAM::Role
-    Condition: WantsFinOpsRole
     Properties:
       RoleName: ReservedAI-Write
       Tags:
         - Key: Project
           Value: productx
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: ManagedBy
-          Value: cloudformation
-        - Key: Owner
-          Value: !Ref Owner
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -424,13 +352,13 @@ Resources:
                 Resource:
                   - arn:aws:cur:*:*:definition/reserved-ai-*
 
-  ProductXWAFRMemberRoleStackSet:
+  ProductXMemberRoleStackSet:
     Type: AWS::CloudFormation::StackSet
     Condition: IsOrg
-    DependsOn: ProductXWAFRRole
+    DependsOn: ProductXRole
     Properties:
-      StackSetName: ProductXWAFRMemberRoleStackSet
-      Description: Deploys ProductXWAFRMemberRole to organization member accounts.
+      StackSetName: ProductXMemberRoleStackSet
+      Description: Deploys ProductXMemberRole to organization member accounts.
       PermissionModel: SERVICE_MANAGED
       CallAs: SELF
       AutoDeployment:
@@ -438,15 +366,7 @@ Resources:
         RetainStacksOnAccountRemoval: false
       Capabilities:
         - CAPABILITY_NAMED_IAM
-      Tags:
-        - Key: Project
-          Value: productx
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: ManagedBy
-          Value: cloudformation
-        - Key: Owner
-          Value: !Ref Owner
+
       ManagedExecution:
         Active: true
       OperationPreferences:
@@ -455,21 +375,19 @@ Resources:
         RegionConcurrencyType: PARALLEL
       Parameters:
         - ParameterKey: ManagementAccountId
-          ParameterValue: !Ref 'AWS::AccountId'
+          ParameterValue: !Ref AWS::AccountId
         - ParameterKey: ExternalId
           ParameterValue: !Ref ExternalId
-        - ParameterKey: Environment
-          ParameterValue: !Ref Environment
-        - ParameterKey: Owner
-          ParameterValue: !Ref Owner
       StackInstancesGroup:
         - DeploymentTargets:
-            OrganizationalUnitIds: !Split [',', !Ref TargetOUs]
+            OrganizationalUnitIds: !Split
+              - ','
+              - !Ref TargetOUs
           Regions:
-            - !Ref 'AWS::Region'
+            - !Ref AWS::Region
       TemplateBody: |
         AWSTemplateFormatVersion: '2010-09-09'
-        Description: ProductX WAFR member account read-only role (StackSet-deployed).
+        
 
         Parameters:
           ManagementAccountId:
@@ -477,25 +395,17 @@ Resources:
           ExternalId:
             Type: String
             NoEcho: true
-          Environment:
-            Type: String
-          Owner:
-            Type: String
 
         Resources:
-          ProductXWAFRMemberRole:
+          ProductXMemberRole:
             Type: AWS::IAM::Role
             Properties:
-              RoleName: ProductXWAFRMemberRole
+              RoleName: ProductXMemberRole
               Tags:
                 - Key: Project
                   Value: productx
-                - Key: Environment
-                  Value: !Ref Environment
                 - Key: ManagedBy
                   Value: cloudformation
-                - Key: Owner
-                  Value: !Ref Owner
               AssumeRolePolicyDocument:
                 Version: '2012-10-17'
                 Statement:
@@ -506,7 +416,7 @@ Resources:
                     Condition:
                       StringEquals:
                         sts:ExternalId: !Ref ExternalId
-                        aws:PrincipalArn: !Sub 'arn:aws:iam::${ManagementAccountId}:role/ProductXWAFRRole'
+                        aws:PrincipalArn: !Sub 'arn:aws:iam::${ManagementAccountId}:role/ProductXRole'
                   - Effect: Allow
                     Principal:
                       AWS: "282762468439"
@@ -518,7 +428,7 @@ Resources:
                 - arn:aws:iam::aws:policy/SecurityAudit
                 - arn:aws:iam::aws:policy/ReadOnlyAccess
               Policies:
-                - PolicyName: WAFRWorkloadManagement
+                - PolicyName: ProductXWellarchitectedPolicy
                   PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
@@ -529,14 +439,6 @@ Resources:
                           - wellarchitected:UpdateWorkload
                           - wellarchitected:DeleteWorkload
                         Resource: '*'
-                      - Sid: WorkloadLensManagement
-                        Effect: Allow
-                        Action:
-                          - wellarchitected:AssociateLenses
-                          - wellarchitected:DisassociateLenses
-                          - wellarchitected:UpgradeLensReview
-                          - wellarchitected:UpdateLensReview
-                        Resource: '*'
                       - Sid: AnswerManagement
                         Effect: Allow
                         Action:
@@ -546,13 +448,6 @@ Resources:
                         Effect: Allow
                         Action:
                           - wellarchitected:CreateMilestone
-                        Resource: '*'
-                      - Sid: WorkloadTagging
-                        Effect: Allow
-                        Action:
-                          - wellarchitected:TagResource
-                          - wellarchitected:UntagResource
-                          - wellarchitected:ListTagsForResource
                         Resource: '*'
                 - PolicyName: DataPlaneReadDeny
                   PolicyDocument:
@@ -579,8 +474,8 @@ Resources:
 
         Outputs:
           MemberRoleArn:
-            Value: !GetAtt ProductXWAFRMemberRole.Arn
+            Value: !GetAtt ProductXMemberRole.Arn
 
 Outputs:
   RoleArn:
-    Value: !GetAtt ProductXWAFRRole.Arn
+    Value: !GetAtt ProductXRole.Arn
